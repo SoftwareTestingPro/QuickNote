@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Quick Note</title>
+  <meta name="description" content="Minimal private note and communication tool">
+  <meta name="theme-color" content="#111827">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Quick Note">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <!-- Config & Firebase SDKs -->
+  <script src="config.js?v=5"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+</head>
+<body>
+  <div class="app-container" id="app">
+    <!-- Top Bar -->
+    <header class="app-header">
+      <div class="profile-info">
+        <div class="avatar-wrapper" id="profileBtn" title="Quick Notes">
+          <div class="avatar online" id="userAvatar">QN</div>
+        </div>
+        <div class="header-text">
+          <h2 id="partnerNameDisplay">Quick List</h2>
+          <p id="connectionStatus">All notes synced</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Disguised subscription badge -->
+        <div class="mode-badge locked" id="modeBadge" title="Subscription Status">
+          <span id="lockIcon">⭐</span>
+          <span id="lockLabel">Go Premium</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Message stream -->
+    <main class="chat-body" id="chatMessages">
+      <!-- Dynamic messages injected here -->
+    </main>
+
+    <!-- Input Footer -->
+    <footer class="chat-footer">
+      <div class="compose-box">
+        <div class="input-row">
+          <input type="text" id="fakeInput" class="fake-input" placeholder="Type a message..." autocomplete="off">
+        </div>
+        
+        <div class="secret-input-wrapper" id="secretInputWrapper">
+          <span class="secret-label">Note:</span>
+          <input type="text" id="secretInput" class="secret-input" placeholder="Additional details..." autocomplete="off">
+        </div>
+
+        <div class="controls-row">
+          <button type="button" class="toggle-secret-btn" id="toggleSecretBtn">
+            <span>+ Attach Note</span>
+          </button>
+          <button type="button" class="send-btn" id="sendBtn" aria-label="Send">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </footer>
+
+    <!-- Subscription Key Modal -->
+    <div class="modal-overlay" id="pinModal">
+      <div class="modal-card">
+        <h3><span>⭐</span> Activate Premium</h3>
+        <p>Enter your 4-digit subscription key to enable premium cloud sync and enhanced features.</p>
+        
+        <div class="pin-dots" id="pinDots">
+          <div class="dot"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+        </div>
+
+        <div class="keypad" id="keypad">
+          <button class="key-btn" data-key="1">1</button>
+          <button class="key-btn" data-key="2">2</button>
+          <button class="key-btn" data-key="3">3</button>
+          <button class="key-btn" data-key="a">A</button>
+
+          <button class="key-btn" data-key="4">4</button>
+          <button class="key-btn" data-key="5">5</button>
+          <button class="key-btn" data-key="6">6</button>
+          <button class="key-btn" data-key="b">B</button>
+
+          <button class="key-btn" data-key="7">7</button>
+          <button class="key-btn" data-key="8">8</button>
+          <button class="key-btn" data-key="9">9</button>
+          <button class="key-btn" data-key="c">C</button>
+
+          <button class="key-btn" data-key="d">D</button>
+          <button class="key-btn" data-key="0">0</button>
+          <button class="key-btn" data-key="e">E</button>
+          <button class="key-btn" data-key="f">F</button>
+
+          <button class="key-btn key-action" id="keyClear">C</button>
+          <button class="key-btn key-action" id="keyBack">⌫</button>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="cancelPinBtn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panic Screen: Instant Disguise as harmless Shopping Wishlist / Notes -->
+    <div class="panic-banner" id="panicScreen">
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e5e7eb; padding-bottom:12px;">
+        <h2 style="font-size:20px; font-weight:700;">Grocery & Shopping Checklist</h2>
+        <button id="exitPanicBtn" style="border:none; background:#f3f4f6; padding:6px 12px; border-radius:6px; font-weight:600; cursor:pointer;">Close</button>
+      </div>
+      <div style="margin-top:16px; display:flex; flex-direction:column; gap:12px; font-size:15px;">
+        <label><input type="checkbox" checked> Almond milk (unsweetened)</label>
+        <label><input type="checkbox" checked> Greek yogurt & berries</label>
+        <label><input type="checkbox"> Organic eggs & butter</label>
+        <label><input type="checkbox"> Sourdough bread</label>
+        <label><input type="checkbox"> Olive oil & Himalayan salt</label>
+        <label><input type="checkbox"> Avocados</label>
+      </div>
+    </div>
+
+    <!-- Floating Toast Notification -->
+    <div class="toast" id="toast">Notice message</div>
+  </div>
+
+  <script src="app.js?v=7"></script>
+</body>
+</html>
