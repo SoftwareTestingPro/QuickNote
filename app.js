@@ -336,12 +336,37 @@ document.getElementById('keyBack').addEventListener('click', () => {
   renderPinDots();
 });
 
+// Lock app to "Go Premium" standard disguised mode
+function lockToDisguiseMode() {
+  if (state.unlocked || pinModal.classList.contains('open')) {
+    state.unlocked = false;
+    state.enteredPin = '';
+    pinModal.classList.remove('open');
+    renderPinDots();
+    updateModeBadge();
+    renderMessages();
+  }
+}
+
+// Auto-lock when user loses focus (app switch, phone lock, tab change, window blur)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    lockToDisguiseMode();
+  }
+});
+
+window.addEventListener('blur', () => {
+  lockToDisguiseMode();
+});
+
+window.addEventListener('pagehide', () => {
+  lockToDisguiseMode();
+});
+
 // Quick Panic Disguise screen on tap header avatar
 profileBtn.addEventListener('click', () => {
   panicScreen.classList.add('active');
-  state.unlocked = false;
-  updateModeBadge();
-  renderMessages();
+  lockToDisguiseMode();
 });
 
 exitPanicBtn.addEventListener('click', () => {
