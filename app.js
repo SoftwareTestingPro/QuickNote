@@ -49,18 +49,21 @@ const rtcConfig = {
 
 
 // Simple XOR + Base64 encryption with the shared PIN so secret messages aren't plain text in the cloud
+const MAGIC_PREFIX = 'QN::';
+
 function encryptWithPin(text, pin) {
   if (!text) return '';
+  const payload = MAGIC_PREFIX + text;
   let result = '';
-  for (let i = 0; i < text.length; i++) {
-    const charCode = text.charCodeAt(i) ^ pin.charCodeAt(i % pin.length);
+  for (let i = 0; i < payload.length; i++) {
+    const charCode = payload.charCodeAt(i) ^ pin.charCodeAt(i % pin.length);
     result += String.fromCharCode(charCode);
   }
   return btoa(encodeURIComponent(result));
 }
 
 function decryptWithPin(cipher, pin) {
-  if (!cipher) return '';
+  if (!cipher) return null;
   try {
     const decoded = decodeURIComponent(atob(cipher));
     let result = '';
@@ -68,9 +71,14 @@ function decryptWithPin(cipher, pin) {
       const charCode = decoded.charCodeAt(i) ^ pin.charCodeAt(i % pin.length);
       result += String.fromCharCode(charCode);
     }
+    // Check if the decrypted result matches our magic prefix
+    if (result.startsWith(MAGIC_PREFIX)) {
+      return result.substring(MAGIC_PREFIX.length);
+    }
+    // Backward compatibility for messages sent without MAGIC_PREFIX
     return result;
   } catch (e) {
-    return '***';
+    return null;
   }
 }
 
@@ -233,15 +241,17 @@ function renderMessages() {
     let isShowingSecret = false;
 
     if (state.unlocked && msg.encryptedSecret) {
+      // 1. Try with the master room key (guarantees seamless decryption across both devices)
+      const masterKey = state.pinHash ? state.pinHash.substring(0, 16) : '22cf79c3e77d6476';
       const keysToTry = [
+        masterKey,
         state.activePin,
-        localStorage.getItem('qn_enc_key'),
-        state.pinHash ? state.pinHash.substring(0, 16) : ''
+        localStorage.getItem('qn_enc_key')
       ].filter(Boolean);
 
       for (const k of keysToTry) {
         const decrypted = decryptWithPin(msg.encryptedSecret, k);
-        if (decrypted && decrypted !== '***') {
+        if (decrypted) {
           displayText = decrypted;
           isShowingSecret = true;
           bubble.classList.add('is-secret');
@@ -377,8 +387,8 @@ function sendMessage() {
 }
 
 function doSendMessage(fakeText, secretText) {
-  // Use active PIN if unlocked, otherwise use saved session pin or default master hash seed for encryption
-  const encKey = state.activePin || localStorage.getItem('qn_enc_key') || state.pinHash.substring(0, 16);
+  // Use shared room key so notes sent in locked or unlocked mode are always 100% decryptable by either partner
+  const encKey = state.pinHash ? state.pinHash.substring(0, 16) : '22cf79c3e77d6476';
 
   const msgPayload = {
     id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
