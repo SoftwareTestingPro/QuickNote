@@ -108,6 +108,9 @@ const hangupCallBtn = document.getElementById('hangupCallBtn');
 const toggleMuteBtn = document.getElementById('toggleMuteBtn');
 const toggleSpeakerBtn = document.getElementById('toggleSpeakerBtn');
 const speakerBtnIcon = document.getElementById('speakerBtnIcon');
+const callModePill = document.getElementById('callModePill');
+const callModePillIcon = document.getElementById('callModePillIcon');
+const callModePillText = document.getElementById('callModePillText');
 const remoteAudio = document.getElementById('remoteAudio');
 const roleBtnUser1 = document.getElementById('roleBtnUser1');
 const roleBtnUser2 = document.getElementById('roleBtnUser2');
@@ -599,24 +602,41 @@ function initFirebase() {
 
 // Tone Synthesizer for Ringtone (No external audio files needed)
 let ringtoneInterval = null;
+let activeOscillators = [];
+
 function playRingtone() {
+  stopRingtone(); // ensure any prior tone or context is completely torn down
   try {
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    callState.ringtoneCtx = audioCtx;
+
     function beep() {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(440, audioCtx.currentTime); // 440Hz A tone
-      gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.2);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 1.2);
+      if (!callState.ringtoneCtx || callState.ringtoneCtx.state === 'closed') return;
+      try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        activeOscillators.push(osc);
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, audioCtx.currentTime); // 440Hz A tone
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.2);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 1.2);
+
+        osc.onended = () => {
+          const idx = activeOscillators.indexOf(osc);
+          if (idx !== -1) activeOscillators.splice(idx, 1);
+        };
+      } catch (e) {
+        console.warn('Beep trigger note:', e);
+      }
     }
+
     beep();
     ringtoneInterval = setInterval(beep, 3000);
-    callState.ringtoneCtx = audioCtx;
   } catch (e) {
     console.warn('AudioContext ringtone error:', e);
   }
@@ -626,6 +646,14 @@ function stopRingtone() {
   if (ringtoneInterval) {
     clearInterval(ringtoneInterval);
     ringtoneInterval = null;
+  }
+  // Stop all active oscillator nodes immediately
+  while (activeOscillators.length > 0) {
+    const osc = activeOscillators.pop();
+    try {
+      osc.stop();
+      osc.disconnect();
+    } catch (e) {}
   }
   if (callState.ringtoneCtx) {
     try {
@@ -698,6 +726,7 @@ function listenForIncomingCalls() {
         callStatusText.textContent = 'Connected';
         callAvatar.classList.remove('ringing');
         startCallTimer();
+        applyAudioOutputMode();
       }
     }
 
@@ -966,6 +995,11 @@ async function applyAudioOutputMode() {
       toggleSpeakerBtn.title = 'Current: Earpiece Mode (Tap for Loudspeaker)';
     }
     if (speakerBtnIcon) speakerBtnIcon.textContent = '👂';
+    if (callModePill) {
+      callModePill.className = 'call-mode-pill';
+      if (callModePillIcon) callModePillIcon.textContent = '👂';
+      if (callModePillText) callModePillText.textContent = 'Earpiece Mode';
+    }
   } else {
     remoteAudio.volume = 1.0;
     if (toggleSpeakerBtn) {
@@ -973,6 +1007,11 @@ async function applyAudioOutputMode() {
       toggleSpeakerBtn.title = 'Current: Loudspeaker (Tap for Earpiece)';
     }
     if (speakerBtnIcon) speakerBtnIcon.textContent = '🔊';
+    if (callModePill) {
+      callModePill.className = 'call-mode-pill speaker';
+      if (callModePillIcon) callModePillIcon.textContent = '🔊';
+      if (callModePillText) callModePillText.textContent = 'Loudspeaker Mode';
+    }
   }
 }
 
@@ -988,17 +1027,51 @@ function cleanupCallUI() {
   stopCallTimer();
 
   if (callState.localStream) {
-    callState.localStream.getTracks().forEach(track => track.stop());
+    try {
+      callState.localStream.getTracks().forEach(track => {
+        track.stop();
+        track.enabled = false;
+      });
+    } catch (e) {}
     callState.localStream = null;
   }
 
   if (callState.peerConnection) {
-    try { callState.peerConnection.close(); } catch (e) {}
+    try {
+      // Stop all senders and transceivers to immediately kill hardware pipeline
+      callState.peerConnection.getSenders().forEach(sender => {
+        if (sender.track) {
+          sender.track.stop();
+          sender.track.enabled = false;
+        }
+      });
+      callState.peerConnection.getReceivers().forEach(receiver => {
+        if (receiver.track) {
+          receiver.track.stop();
+          receiver.track.enabled = false;
+        }
+      });
+      callState.peerConnection.close();
+    } catch (e) {}
     callState.peerConnection = null;
   }
 
   if (remoteAudio) {
-    remoteAudio.srcObject = null;
+    try {
+      remoteAudio.pause();
+      if (remoteAudio.srcObject) {
+        const stream = remoteAudio.srcObject;
+        if (stream.getTracks) {
+          stream.getTracks().forEach(t => {
+            t.stop();
+            t.enabled = false;
+          });
+        }
+      }
+      remoteAudio.srcObject = null;
+      remoteAudio.removeAttribute('src');
+      remoteAudio.load();
+    } catch (e) {}
   }
 
   callState.isCallActive = false;
@@ -1011,6 +1084,11 @@ function cleanupCallUI() {
     toggleSpeakerBtn.className = 'call-action-btn speaker-toggle earpiece';
   }
   if (speakerBtnIcon) speakerBtnIcon.textContent = '👂';
+  if (callModePill) {
+    callModePill.className = 'call-mode-pill';
+    if (callModePillIcon) callModePillIcon.textContent = '👂';
+    if (callModePillText) callModePillText.textContent = 'Earpiece Mode';
+  }
   callAvatar.classList.remove('ringing');
   callOverlay.classList.remove('active');
 }

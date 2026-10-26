@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="icon" type="image/png" href="icon-192.png">
-  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="style.css?v=14">
   <!-- Config & Firebase SDKs -->
   <script src="config.js?v=8"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -159,6 +159,9 @@
         </div>
         <h3 id="callTitle">Voice Call</h3>
         <p id="callStatusText">Connecting...</p>
+        <div class="call-mode-pill" id="callModePill" title="Audio routing">
+          <span id="callModePillIcon">👂</span> <span id="callModePillText">Earpiece Mode</span>
+        </div>
         <div class="call-duration" id="callDuration">00:00</div>
 
         <div class="call-actions">
@@ -204,6 +207,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>

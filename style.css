@@ -803,7 +803,29 @@ body {
 .call-card p {
   font-size: 14px;
   color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.call-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
   margin-bottom: 12px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
+  letter-spacing: 0.3px;
+  transition: all 0.25s ease;
+}
+
+.call-mode-pill.speaker {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
 }
 
 .call-duration {
