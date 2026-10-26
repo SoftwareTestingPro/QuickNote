@@ -217,10 +217,49 @@ body {
   user-select: none;
 }
 
-.msg-bubble:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.12);
-  border-left-color: var(--accent);
+/* Sender (You) styling */
+.msg-bubble.bubble-me {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12) 0%, rgba(30, 58, 138, 0.08) 100%);
+  border-color: rgba(96, 165, 250, 0.22);
+  border-left: 4px solid #3b82f6;
+}
+
+.msg-bubble.bubble-me:hover {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.18) 0%, rgba(30, 58, 138, 0.14) 100%);
+  border-color: rgba(96, 165, 250, 0.35);
+  border-left-color: #60a5fa;
+}
+
+.msg-bubble.bubble-me .msg-sender-tag {
+  color: #60a5fa;
+}
+
+/* Receiver (Partner) styling */
+.msg-bubble.bubble-them {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(6, 78, 59, 0.08) 100%);
+  border-color: rgba(52, 211, 153, 0.22);
+  border-left: 4px solid #10b981;
+}
+
+.msg-bubble.bubble-them:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(6, 78, 59, 0.14) 100%);
+  border-color: rgba(52, 211, 153, 0.35);
+  border-left-color: #34d399;
+}
+
+.msg-bubble.bubble-them .msg-sender-tag {
+  color: #34d399;
+}
+
+/* Secret unlocked styling */
+.msg-bubble.is-secret {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.12) 0%, rgba(131, 24, 67, 0.08) 100%);
+  border-color: rgba(244, 114, 182, 0.3);
+  border-left: 4px solid #ec4899;
+}
+
+.msg-bubble.is-secret .msg-sender-tag {
+  color: #f472b6;
 }
 
 .msg-meta-header {

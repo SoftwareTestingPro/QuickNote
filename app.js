@@ -78,7 +78,7 @@ if ('serviceWorker' in navigator) {
 // UI Setup
 function initUI() {
   userAvatar.textContent = 'QN';
-  partnerNameDisplay.textContent = 'Quick List';
+  partnerNameDisplay.textContent = 'Quick Note';
   updateModeBadge();
 }
 
@@ -119,19 +119,20 @@ function renderMessages() {
     emptyNotice.style.fontSize = '13px';
     emptyNotice.innerHTML = `
       <div style="font-size: 28px; margin-bottom: 8px;">📝</div>
-      <div>Channel is empty.</div>
-      <div style="margin-top: 4px;">Type a message below to start.</div>
+      <div>No items in your list.</div>
+      <div style="margin-top: 4px;">Add an item below to get started.</div>
     `;
     chatMessagesEl.appendChild(emptyNotice);
     return;
   }
 
   state.messages.forEach((msg) => {
+    const isMe = msg.sender === state.role;
     const row = document.createElement('div');
-    row.className = 'message-row';
+    row.className = `message-row ${isMe ? 'msg-row-me' : 'msg-row-them'}`;
 
     const bubble = document.createElement('div');
-    bubble.className = 'msg-bubble';
+    bubble.className = `msg-bubble ${isMe ? 'bubble-me' : 'bubble-them'}`;
     bubble.setAttribute('data-id', msg.id || '');
     if (msg.key) bubble.setAttribute('data-key', msg.key);
 
@@ -217,6 +218,53 @@ function escapeHTML(str) {
   );
 }
 
+const GROCERY_ITEMS = [
+  // Fruits
+  'Apples', 'Bananas', 'Oranges', 'Strawberries', 'Blueberries', 'Grapes',
+  'Watermelon', 'Mangoes', 'Pineapple', 'Peaches', 'Pears', 'Kiwi',
+  'Plums', 'Cherries', 'Raspberries', 'Blackberries', 'Pomegranate', 'Cantaloupe',
+  'Papaya', 'Lemons', 'Limes', 'Grapefruit', 'Figs', 'Apricots',
+
+  // Vegetables & Greens
+  'Tomatoes', 'Potatoes', 'Sweet potatoes', 'Red onions', 'Yellow onions',
+  'Garlic', 'Carrots', 'Broccoli', 'Spinach', 'Cucumbers', 'Bell peppers',
+  'Avocados', 'Button mushrooms', 'Lettuce', 'Kale', 'Zucchini', 'Cauliflower',
+  'Cabbage', 'Green beans', 'Asparagus', 'Celery', 'Ginger', 'Chili peppers',
+  'Coriander', 'Mint leaves', 'Basil', 'Spring onions', 'Beetroot', 'Corn',
+
+  // Dairy & Refrigerated
+  'Whole milk', 'Oat milk', 'Almond milk', 'Greek yogurt', 'Cheddar cheese',
+  'Mozzarella', 'Butter', 'Eggs', 'Heavy cream', 'Tofu', 'Cottage cheese',
+  'Sour cream', 'Parmesan',
+
+  // Bakery & Breakfast
+  'Sourdough bread', 'Whole wheat bread', 'Bagels', 'Tortillas', 'Rolled oats',
+  'Granola', 'Pancake mix', 'Croissants', 'English muffins',
+
+  // Pantry & Staples
+  'Basmati rice', 'Brown rice', 'Quinoa', 'Pasta', 'Spaghetti', 'Noodles',
+  'Olive oil', 'Coconut oil', 'Sesame oil', 'Apple cider vinegar', 'Soy sauce',
+  'Tomato sauce', 'Peanut butter', 'Honey', 'Maple syrup', 'Black pepper',
+  'Sea salt', 'Cumin powder', 'Turmeric', 'Cinnamon', 'Chia seeds',
+
+  // Nuts, Snacks & Beverages
+  'Almonds', 'Walnuts', 'Cashews', 'Pistachios', 'Dark chocolate',
+  'Coffee beans', 'Green tea', 'Earl Grey tea', 'Sparkling water', 'Orange juice'
+];
+
+function getRandomGroceryItem() {
+  const existingItems = new Set(
+    state.messages
+      .map(m => (m.fakeText || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  const available = GROCERY_ITEMS.filter(item => !existingItems.has(item.toLowerCase()));
+  const pool = available.length > 0 ? available : GROCERY_ITEMS;
+  const randomIndex = Math.floor(Math.random() * pool.length);
+  return pool[randomIndex];
+}
+
 // Send Message
 function sendMessage() {
   const fakeText = fakeInput.value.trim();
@@ -227,7 +275,7 @@ function sendMessage() {
   const msgPayload = {
     id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
     sender: state.role,
-    fakeText: fakeText || 'Alright, sounds good.',
+    fakeText: fakeText || getRandomGroceryItem(),
     encryptedSecret: secretText ? encryptWithPin(secretText, state.pin) : null,
     timestamp: Date.now()
   };
@@ -272,7 +320,6 @@ modeBadge.addEventListener('click', () => {
     state.unlocked = false;
     updateModeBadge();
     renderMessages();
-    showToast('Premium mode paused');
   } else {
     // Open subscription key modal
     state.enteredPin = '';
@@ -309,7 +356,6 @@ function handlePinInput(char) {
           pinModal.classList.remove('open');
           updateModeBadge();
           renderMessages();
-          showToast('Premium features activated');
         } else {
           showToast('Invalid subscription key');
           state.enteredPin = '';
