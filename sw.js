@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dualchat-v7';
+const CACHE_NAME = 'dualchat-v10';
 const ASSETS = [
   './',
   './index.html',
@@ -27,10 +27,16 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  // Only cache GET requests for local static assets
   if (e.request.method === 'GET' && e.request.url.startsWith(self.location.origin)) {
+    // Network-first strategy for app code so updates load immediately
     e.respondWith(
-      caches.match(e.request).then((res) => res || fetch(e.request))
+      fetch(e.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
+          return response;
+        })
+        .catch(() => caches.match(e.request))
     );
   }
 });

@@ -11,8 +11,31 @@ const state = {
   messages: [],
   dbRef: null,
   pinRef: null,
+  callsRef: null,
   enteredPin: ''
 };
+
+// WebRTC & Call State
+const callState = {
+  peerConnection: null,
+  localStream: null,
+  currentCallId: null,
+  isCaller: false,
+  isCallActive: false,
+  timerInterval: null,
+  startTime: null,
+  ringtoneAudio: null
+};
+
+// Free public STUN servers for NAT traversal
+const rtcConfig = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' }
+  ]
+};
+
 
 // Simple XOR + Base64 encryption with the shared PIN so secret messages aren't plain text in the cloud
 function encryptWithPin(text, pin) {
@@ -60,6 +83,19 @@ const connectionStatus = document.getElementById('connectionStatus');
 const profileBtn = document.getElementById('profileBtn');
 const panicScreen = document.getElementById('panicScreen');
 const exitPanicBtn = document.getElementById('exitPanicBtn');
+const callBtn = document.getElementById('callBtn');
+const callOverlay = document.getElementById('callOverlay');
+const callAvatar = document.getElementById('callAvatar');
+const callTitle = document.getElementById('callTitle');
+const callStatusText = document.getElementById('callStatusText');
+const callDuration = document.getElementById('callDuration');
+const callIncomingActions = document.getElementById('callIncomingActions');
+const callActiveActions = document.getElementById('callActiveActions');
+const acceptCallBtn = document.getElementById('acceptCallBtn');
+const declineCallBtn = document.getElementById('declineCallBtn');
+const hangupCallBtn = document.getElementById('hangupCallBtn');
+const toggleMuteBtn = document.getElementById('toggleMuteBtn');
+const remoteAudio = document.getElementById('remoteAudio');
 
 // Toast helper
 function showToast(msg) {
@@ -87,10 +123,16 @@ function updateModeBadge() {
     modeBadge.className = 'mode-badge unlocked';
     lockIcon.textContent = '⭐';
     lockLabel.textContent = 'Premium Active';
+    if (callBtn) callBtn.classList.remove('hidden');
   } else {
     modeBadge.className = 'mode-badge locked';
     lockIcon.textContent = '⭐';
     lockLabel.textContent = 'Go Premium';
+    if (callBtn) callBtn.classList.add('hidden');
+    // If locked while in a call or incoming call, safely end/decline
+    if (callState.isCallActive || callState.currentCallId) {
+      endCall();
+    }
   }
 }
 
@@ -470,6 +512,10 @@ function initFirebase() {
     connectionStatus.textContent = 'Syncing...';
     connectionStatus.style.color = '#38bdf8';
 
+    // Call signaling reference
+    state.callsRef = db.ref('rooms/' + state.roomId + '/calls');
+    listenForIncomingCalls();
+
     state.dbRef.limitToLast(100).on('value', (snapshot) => {
       state.messages = [];
       if (snapshot.exists()) {
@@ -495,7 +541,363 @@ function initFirebase() {
   }
 }
 
+// ----------------------------------------------------
+// WebRTC Internet Calling Implementation
+// ----------------------------------------------------
+
+// Tone Synthesizer for Ringtone (No external audio files needed)
+let ringtoneInterval = null;
+function playRingtone() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function beep() {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, audioCtx.currentTime); // 440Hz A tone
+      gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.2);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 1.2);
+    }
+    beep();
+    ringtoneInterval = setInterval(beep, 3000);
+    callState.ringtoneCtx = audioCtx;
+  } catch (e) {
+    console.warn('AudioContext ringtone error:', e);
+  }
+}
+
+function stopRingtone() {
+  if (ringtoneInterval) {
+    clearInterval(ringtoneInterval);
+    ringtoneInterval = null;
+  }
+  if (callState.ringtoneCtx) {
+    try {
+      callState.ringtoneCtx.close();
+    } catch (e) {}
+    callState.ringtoneCtx = null;
+  }
+}
+
+// Format call timer 00:00
+function startCallTimer() {
+  callState.startTime = Date.now();
+  callDuration.classList.add('active');
+  callDuration.textContent = '00:00';
+  if (callState.timerInterval) clearInterval(callState.timerInterval);
+  callState.timerInterval = setInterval(() => {
+    const diff = Math.floor((Date.now() - callState.startTime) / 1000);
+    const mins = String(Math.floor(diff / 60)).padStart(2, '0');
+    const secs = String(diff % 60).padStart(2, '0');
+    callDuration.textContent = `${mins}:${secs}`;
+  }, 1000);
+}
+
+function stopCallTimer() {
+  if (callState.timerInterval) {
+    clearInterval(callState.timerInterval);
+    callState.timerInterval = null;
+  }
+  callDuration.classList.remove('active');
+  callDuration.textContent = '00:00';
+}
+
+// Listen for incoming calls
+function listenForIncomingCalls() {
+  if (!state.callsRef) return;
+
+  state.callsRef.on('value', async (snapshot) => {
+    const callData = snapshot.val();
+
+    // If call was removed or ended
+    if (!callData) {
+      if (callState.isCallActive || callState.currentCallId) {
+        cleanupCallUI();
+        showToast('Call ended');
+      }
+      return;
+    }
+
+    const { status, caller, offer, answer } = callData;
+
+    // Incoming Call for current user
+    if (status === 'ringing' && caller !== state.role) {
+      // Show incoming call if unlocked (or notify user)
+      if (state.unlocked) {
+        showIncomingCallUI();
+      } else {
+        // App is locked: show disguised notification so they know someone is calling
+        showToast('Notification: Sync request waiting');
+      }
+    }
+
+    // Caller receives acceptance from Receiver
+    if (status === 'connected' && callState.isCaller && answer && callState.peerConnection) {
+      if (!callState.isCallActive) {
+        callState.isCallActive = true;
+        stopRingtone();
+        try {
+          await callState.peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+        } catch (err) {
+          console.warn('Set remote desc error:', err);
+        }
+        callStatusText.textContent = 'Connected';
+        callAvatar.classList.remove('ringing');
+        startCallTimer();
+      }
+    }
+
+    // Call declined or ended
+    if (status === 'declined' || status === 'ended') {
+      cleanupCallUI();
+      showToast(status === 'declined' ? 'Call declined' : 'Call ended');
+    }
+  });
+
+  // Candidate listeners
+  state.callsRef.child('candidates').on('child_added', (snap) => {
+    const data = snap.val();
+    if (data && data.sender !== state.role && callState.peerConnection) {
+      callState.peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)).catch((e) => {
+        console.warn('Add ICE candidate note:', e);
+      });
+    }
+  });
+}
+
+// Start Call (Outgoing)
+async function startOutgoingCall() {
+  if (!state.unlocked) return;
+  if (!state.callsRef) {
+    showToast('Firebase connection required for internet calls');
+    return;
+  }
+
+  try {
+    // 1. Get audio media
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    callState.localStream = stream;
+
+    // 2. Setup WebRTC PeerConnection
+    setupPeerConnection();
+    stream.getTracks().forEach(track => callState.peerConnection.addTrack(track, stream));
+
+    // 3. Create Offer
+    const offer = await callState.peerConnection.createOffer();
+    await callState.peerConnection.setLocalDescription(offer);
+
+    callState.isCaller = true;
+    callState.currentCallId = 'active_call';
+
+    // 4. Push call state to Firebase
+    await state.callsRef.set({
+      status: 'ringing',
+      caller: state.role,
+      offer: {
+        type: offer.type,
+        sdp: offer.sdp
+      },
+      timestamp: Date.now()
+    });
+
+    // 5. Update UI
+    callTitle.textContent = 'Calling...';
+    callStatusText.textContent = 'Ringing partner...';
+    callAvatar.classList.add('ringing');
+    callIncomingActions.classList.add('hidden');
+    callActiveActions.classList.remove('hidden');
+    callOverlay.classList.add('active');
+    playRingtone();
+
+  } catch (err) {
+    console.error('Call initialization failed:', err);
+    if (err.name === 'NotAllowedError') {
+      showToast('Microphone access denied. Please allow microphone in browser.');
+    } else {
+      showToast('Could not start call: ' + err.message);
+    }
+    cleanupCallUI();
+  }
+}
+
+// Display incoming call prompt
+function showIncomingCallUI() {
+  callTitle.textContent = 'Incoming Call';
+  callStatusText.textContent = 'Voice Call from Partner';
+  callAvatar.classList.add('ringing');
+  callIncomingActions.classList.remove('hidden');
+  callActiveActions.classList.add('hidden');
+  callDuration.classList.remove('active');
+  callOverlay.classList.add('active');
+  playRingtone();
+}
+
+// Accept incoming call
+async function acceptCall() {
+  stopRingtone();
+  callStatusText.textContent = 'Connecting...';
+  callIncomingActions.classList.add('hidden');
+  callActiveActions.classList.remove('hidden');
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    callState.localStream = stream;
+
+    setupPeerConnection();
+    stream.getTracks().forEach(track => callState.peerConnection.addTrack(track, stream));
+
+    // Fetch the caller's offer
+    const snap = await state.callsRef.once('value');
+    const callData = snap.val();
+
+    if (!callData || !callData.offer) {
+      throw new Error('Call already cancelled');
+    }
+
+    await callState.peerConnection.setRemoteDescription(new RTCSessionDescription(callData.offer));
+    const answer = await callState.peerConnection.createAnswer();
+    await callState.peerConnection.setLocalDescription(answer);
+
+    // Update Firebase with answer
+    await state.callsRef.update({
+      status: 'connected',
+      answer: {
+        type: answer.type,
+        sdp: answer.sdp
+      }
+    });
+
+    callState.isCallActive = true;
+    callStatusText.textContent = 'Connected';
+    callAvatar.classList.remove('ringing');
+    startCallTimer();
+
+  } catch (err) {
+    console.error('Accept call failed:', err);
+    showToast('Failed to accept: ' + err.message);
+    endCall();
+  }
+}
+
+// Decline incoming call
+function declineCall() {
+  stopRingtone();
+  if (state.callsRef) {
+    state.callsRef.update({ status: 'declined' }).then(() => {
+      setTimeout(() => state.callsRef.remove(), 1000);
+    });
+  }
+  cleanupCallUI();
+}
+
+// End / Hangup Call
+function endCall() {
+  stopRingtone();
+  stopCallTimer();
+  if (state.callsRef) {
+    state.callsRef.update({ status: 'ended' }).then(() => {
+      setTimeout(() => state.callsRef.remove(), 1000);
+    });
+  }
+  cleanupCallUI();
+}
+
+// Setup PeerConnection & ICE Handlers
+function setupPeerConnection() {
+  if (callState.peerConnection) {
+    try { callState.peerConnection.close(); } catch (e) {}
+  }
+
+  const pc = new RTCPeerConnection(rtcConfig);
+  callState.peerConnection = pc;
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate && state.callsRef) {
+      state.callsRef.child('candidates').push({
+        sender: state.role,
+        candidate: event.candidate.toJSON()
+      });
+    }
+  };
+
+  pc.ontrack = (event) => {
+    if (remoteAudio && event.streams && event.streams[0]) {
+      remoteAudio.srcObject = event.streams[0];
+      remoteAudio.play().catch(e => console.warn('Remote audio autoplay error:', e));
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      cleanupCallUI();
+    }
+  };
+}
+
+// Toggle Mute
+let isMuted = false;
+function toggleMute() {
+  if (callState.localStream) {
+    const audioTrack = callState.localStream.getAudioTracks()[0];
+    if (audioTrack) {
+      isMuted = !isMuted;
+      audioTrack.enabled = !isMuted;
+      toggleMuteBtn.classList.toggle('muted', isMuted);
+      showToast(isMuted ? 'Microphone Muted' : 'Microphone Unmuted');
+    }
+  }
+}
+
+// Reset Call UI and local hardware
+function cleanupCallUI() {
+  stopRingtone();
+  stopCallTimer();
+
+  if (callState.localStream) {
+    callState.localStream.getTracks().forEach(track => track.stop());
+    callState.localStream = null;
+  }
+
+  if (callState.peerConnection) {
+    try { callState.peerConnection.close(); } catch (e) {}
+    callState.peerConnection = null;
+  }
+
+  if (remoteAudio) {
+    remoteAudio.srcObject = null;
+  }
+
+  callState.isCallActive = false;
+  callState.currentCallId = null;
+  callState.isCaller = false;
+  isMuted = false;
+  toggleMuteBtn.classList.remove('muted');
+  callAvatar.classList.remove('ringing');
+  callOverlay.classList.remove('active');
+}
+
+// Call Button Click Event
+if (callBtn) {
+  callBtn.addEventListener('click', () => {
+    if (state.unlocked) {
+      startOutgoingCall();
+    } else {
+      showToast('Unlock required');
+    }
+  });
+}
+
+acceptCallBtn.addEventListener('click', acceptCall);
+declineCallBtn.addEventListener('click', declineCall);
+hangupCallBtn.addEventListener('click', endCall);
+toggleMuteBtn.addEventListener('click', toggleMute);
+
 // Startup
 initUI();
 initFirebase();
 renderMessages();
+
