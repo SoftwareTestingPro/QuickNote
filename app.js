@@ -94,6 +94,7 @@ const connectionStatus = document.getElementById('connectionStatus');
 const profileBtn = document.getElementById('profileBtn');
 const panicScreen = document.getElementById('panicScreen');
 const exitPanicBtn = document.getElementById('exitPanicBtn');
+const privacyShield = document.getElementById('privacyShield');
 const callBtn = document.getElementById('callBtn');
 const callOverlay = document.getElementById('callOverlay');
 const callAvatar = document.getElementById('callAvatar');
@@ -485,36 +486,69 @@ function lockToDisguiseMode() {
     clearTimeout(inactivityTimeout);
     inactivityTimeout = null;
   }
-  if (state.unlocked || pinModal.classList.contains('open')) {
-    state.unlocked = false;
-    state.activePin = ''; // Wipe plaintext PIN from memory immediately
-    state.enteredPin = '';
-    pinModal.classList.remove('open');
-    renderPinDots();
-    updateModeBadge();
-    renderMessages();
+  
+  // Instant visual cover: veil screen synchronously so no frame can leak
+  if (privacyShield) {
+    privacyShield.classList.add('active');
   }
+
+  state.unlocked = false;
+  state.activePin = ''; // Wipe plaintext PIN from memory immediately
+  state.enteredPin = '';
+
+  if (pinModal) pinModal.classList.remove('open');
+  renderPinDots();
+  updateModeBadge();
+  renderMessages();
+
+  // Remove privacy shield once DOM repaint has firmly settled as locked
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (privacyShield) {
+        privacyShield.classList.remove('active');
+      }
+    });
+  });
 }
 
 // Auto-lock listeners:
-// 1. window 'blur' triggers immediately when user taps home button, pulls down notification shade, or opens App Switcher (Recents)
+// 1. window 'blur' triggers the instant the power/lock button is pressed, home button tapped, or notification shade pulled down
 window.addEventListener('blur', () => {
   lockToDisguiseMode();
 });
 
-// 2. document visibilitychange triggers when page becomes hidden
+// 2. document visibilitychange triggers when screen turns off or tab hidden
 document.addEventListener('visibilitychange', () => {
   if (document.hidden || document.visibilityState !== 'visible') {
     lockToDisguiseMode();
+  } else {
+    // When screen turns back on / wakes up, strictly enforce locked disguised state
+    if (!state.unlocked) {
+      updateModeBadge();
+      renderMessages();
+    }
   }
 });
 
-// 3. pagehide triggers when navigating away or app process suspended
+// 3. window 'focus' and 'pageshow' guarantee that upon phone wake/unlock, the app is 100% locked
+window.addEventListener('focus', () => {
+  if (!state.unlocked) {
+    updateModeBadge();
+    renderMessages();
+  }
+});
+
+window.addEventListener('pageshow', (event) => {
+  // If restored from bfcache or waking up, ensure locked state
+  lockToDisguiseMode();
+});
+
+// 4. pagehide triggers when navigating away or app process suspended
 window.addEventListener('pagehide', () => {
   lockToDisguiseMode();
 });
 
-// 4. document 'freeze' (Page Lifecycle API)
+// 5. document 'freeze' (Page Lifecycle API)
 document.addEventListener('freeze', () => {
   lockToDisguiseMode();
 });

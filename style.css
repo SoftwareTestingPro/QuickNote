@@ -149,7 +149,6 @@ body {
   align-items: center;
   gap: 5px;
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   font-weight: 600;
 }
 
@@ -682,6 +681,22 @@ body {
 
 .panic-banner.active {
   display: flex;
+}
+
+/* Instant Privacy Shield on screen lock/blur */
+.privacy-shield {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-primary);
+  z-index: 9999;
+}
+
+.privacy-shield.active {
+  display: block;
 }
 
 /* Call Button in Header */
