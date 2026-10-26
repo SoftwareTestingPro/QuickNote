@@ -891,3 +891,24 @@ body {
   color: #ffffff;
 }
 
+.call-action-btn.speaker-toggle {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border-light);
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.call-action-btn.speaker-toggle.earpiece {
+  background: #3b82f6;
+  border-color: #2563eb;
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.35);
+}
+
+.call-action-btn.speaker-toggle.loudspeaker {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: var(--border-light);
+}
+

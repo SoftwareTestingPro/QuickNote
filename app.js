@@ -106,6 +106,8 @@ const acceptCallBtn = document.getElementById('acceptCallBtn');
 const declineCallBtn = document.getElementById('declineCallBtn');
 const hangupCallBtn = document.getElementById('hangupCallBtn');
 const toggleMuteBtn = document.getElementById('toggleMuteBtn');
+const toggleSpeakerBtn = document.getElementById('toggleSpeakerBtn');
+const speakerBtnIcon = document.getElementById('speakerBtnIcon');
 const remoteAudio = document.getElementById('remoteAudio');
 const roleBtnUser1 = document.getElementById('roleBtnUser1');
 const roleBtnUser2 = document.getElementById('roleBtnUser2');
@@ -717,6 +719,19 @@ function listenForIncomingCalls() {
   });
 }
 
+// Audio constraints tuned specifically for telephony voice calls (signals OS to route to earpiece)
+const CALL_AUDIO_CONSTRAINTS = {
+  audio: {
+    echoCancellation: { ideal: true },
+    noiseSuppression: { ideal: true },
+    autoGainControl: { ideal: true },
+    channelCount: 1, // Mono channel indicates standard phone call to Android/iOS
+    sampleRate: { ideal: 16000 },
+    latency: { ideal: 0.01 }
+  },
+  video: false
+};
+
 // Start Call (Outgoing)
 async function startOutgoingCall() {
   if (!state.unlocked) return;
@@ -726,8 +741,8 @@ async function startOutgoingCall() {
   }
 
   try {
-    // 1. Get audio media
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    // 1. Get speech-optimized telephony audio media
+    const stream = await navigator.mediaDevices.getUserMedia(CALL_AUDIO_CONSTRAINTS);
     callState.localStream = stream;
 
     // 2. Setup WebRTC PeerConnection
@@ -761,6 +776,7 @@ async function startOutgoingCall() {
     callIncomingActions.classList.add('hidden');
     callActiveActions.classList.remove('hidden');
     callOverlay.classList.add('active');
+    applyAudioOutputMode();
     playRingtone();
 
   } catch (err) {
@@ -794,7 +810,7 @@ async function acceptCall() {
   callActiveActions.classList.remove('hidden');
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const stream = await navigator.mediaDevices.getUserMedia(CALL_AUDIO_CONSTRAINTS);
     callState.localStream = stream;
 
     setupPeerConnection();
@@ -825,6 +841,7 @@ async function acceptCall() {
     callStatusText.textContent = 'Connected';
     callAvatar.classList.remove('ringing');
     startCallTimer();
+    applyAudioOutputMode();
 
   } catch (err) {
     console.error('Accept call failed:', err);
@@ -902,6 +919,69 @@ function toggleMute() {
   }
 }
 
+// Speakerphone vs Earpiece routing state ('earpiece' default for phone calls)
+let audioOutputMode = 'earpiece'; // 'earpiece' | 'speaker'
+
+async function applyAudioOutputMode() {
+  if (!remoteAudio) return;
+
+  // 1. Programmatic sink selection (Chrome Desktop & supported mobile platforms)
+  if (typeof remoteAudio.setSinkId === 'function') {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+
+      if (audioOutputMode === 'earpiece') {
+        // Look for earpiece / internal receiver
+        const earpiece = audioOutputs.find(d => 
+          /earpiece|receiver|phone|handset/i.test(d.label)
+        );
+        if (earpiece) {
+          await remoteAudio.setSinkId(earpiece.deviceId);
+        } else if (audioOutputs.length > 0) {
+          // If no explicitly named earpiece, default sink
+          await remoteAudio.setSinkId(audioOutputs[0].deviceId);
+        }
+      } else {
+        // Speakerphone mode: Look for speaker / loudspeaker
+        const speaker = audioOutputs.find(d => 
+          /speaker|loudspeaker|external/i.test(d.label)
+        );
+        if (speaker) {
+          await remoteAudio.setSinkId(speaker.deviceId);
+        } else {
+          await remoteAudio.setSinkId('');
+        }
+      }
+    } catch (e) {
+      console.warn('setSinkId notice:', e);
+    }
+  }
+
+  // 2. Adjust volume curve to prevent loud blasts when in earpiece mode
+  if (audioOutputMode === 'earpiece') {
+    remoteAudio.volume = 0.65;
+    if (toggleSpeakerBtn) {
+      toggleSpeakerBtn.className = 'call-action-btn speaker-toggle earpiece';
+      toggleSpeakerBtn.title = 'Current: Earpiece Mode (Tap for Loudspeaker)';
+    }
+    if (speakerBtnIcon) speakerBtnIcon.textContent = '👂';
+  } else {
+    remoteAudio.volume = 1.0;
+    if (toggleSpeakerBtn) {
+      toggleSpeakerBtn.className = 'call-action-btn speaker-toggle loudspeaker';
+      toggleSpeakerBtn.title = 'Current: Loudspeaker (Tap for Earpiece)';
+    }
+    if (speakerBtnIcon) speakerBtnIcon.textContent = '🔊';
+  }
+}
+
+async function toggleAudioOutput() {
+  audioOutputMode = (audioOutputMode === 'earpiece') ? 'speaker' : 'earpiece';
+  await applyAudioOutputMode();
+  showToast(audioOutputMode === 'earpiece' ? 'Switched to Earpiece Mode' : 'Switched to Speakerphone');
+}
+
 // Reset Call UI and local hardware
 function cleanupCallUI() {
   stopRingtone();
@@ -925,7 +1005,12 @@ function cleanupCallUI() {
   callState.currentCallId = null;
   callState.isCaller = false;
   isMuted = false;
+  audioOutputMode = 'earpiece';
   toggleMuteBtn.classList.remove('muted');
+  if (toggleSpeakerBtn) {
+    toggleSpeakerBtn.className = 'call-action-btn speaker-toggle earpiece';
+  }
+  if (speakerBtnIcon) speakerBtnIcon.textContent = '👂';
   callAvatar.classList.remove('ringing');
   callOverlay.classList.remove('active');
 }
@@ -945,6 +1030,9 @@ acceptCallBtn.addEventListener('click', acceptCall);
 declineCallBtn.addEventListener('click', declineCall);
 hangupCallBtn.addEventListener('click', endCall);
 toggleMuteBtn.addEventListener('click', toggleMute);
+if (toggleSpeakerBtn) {
+  toggleSpeakerBtn.addEventListener('click', toggleAudioOutput);
+}
 
 // Startup
 initUI();
