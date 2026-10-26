@@ -4,7 +4,9 @@
 const cfg = window.APP_CONFIG || {};
 const state = {
   unlocked: false,
-  pin: cfg.defaultPin || '1234',
+  // Only the cryptographic one-way SHA-256 hash is stored
+  pinHash: cfg.pinHash || '22cf79c3e77d6476dd6eb433b77e1d998023a55bf41fb480f7d79db0266ec8c7',
+  activePin: '', // Only kept in temporary memory while actively unlocked, wiped on lock
   roomId: cfg.roomId || 'our-secret-space',
   role: localStorage.getItem('quick_note_role') || 'user1',
   firebaseConfig: cfg.firebase || null,
@@ -14,6 +16,15 @@ const state = {
   callsRef: null,
   enteredPin: ''
 };
+
+// Fast native Web Crypto SHA-256 hashing
+async function hashPin(pin) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(String(pin).toLowerCase().trim());
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 // WebRTC & Call State
 const callState = {
@@ -215,8 +226,8 @@ function renderMessages() {
     let displayText = msg.fakeText;
     let isShowingSecret = false;
 
-    if (state.unlocked && msg.encryptedSecret) {
-      const decrypted = decryptWithPin(msg.encryptedSecret, state.pin);
+    if (state.unlocked && msg.encryptedSecret && state.activePin) {
+      const decrypted = decryptWithPin(msg.encryptedSecret, state.activePin);
       if (decrypted) {
         displayText = decrypted;
         isShowingSecret = true;
@@ -351,7 +362,7 @@ function sendMessage() {
     id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
     sender: state.role,
     fakeText: fakeText || getRandomGroceryItem(),
-    encryptedSecret: secretText ? encryptWithPin(secretText, state.pin) : null,
+    encryptedSecret: (secretText && state.activePin) ? encryptWithPin(secretText, state.activePin) : null,
     timestamp: Date.now()
   };
 
@@ -419,15 +430,20 @@ function renderPinDots() {
   });
 }
 
-function handlePinInput(char) {
+async function handlePinInput(char) {
   if (state.enteredPin.length < 4) {
     state.enteredPin += String(char).toLowerCase();
     renderPinDots();
 
     if (state.enteredPin.length === 4) {
+      const typedPin = state.enteredPin;
+      const inputHash = await hashPin(typedPin);
+
       setTimeout(() => {
-        if (state.enteredPin.toLowerCase() === String(state.pin).toLowerCase()) {
+        if (inputHash === state.pinHash.toLowerCase()) {
           state.unlocked = true;
+          state.activePin = typedPin; // Temporary in-memory key for decrypting/encrypting
+          state.enteredPin = '';
           pinModal.classList.remove('open');
           updateModeBadge();
           renderMessages();
@@ -461,6 +477,7 @@ document.getElementById('keyBack').addEventListener('click', () => {
 function lockToDisguiseMode() {
   if (state.unlocked || pinModal.classList.contains('open')) {
     state.unlocked = false;
+    state.activePin = ''; // Wipe plaintext PIN from memory immediately
     state.enteredPin = '';
     pinModal.classList.remove('open');
     renderPinDots();
@@ -511,8 +528,7 @@ function initFirebase() {
         {
           id: 'welcome_1',
           sender: 'user2',
-          fakeText: 'Meeting reschedule: moved to 4:30 PM tomorrow.',
-          encryptedSecret: encryptWithPin('Hey! I love you so much ❤️', state.pin),
+          encryptedSecret: null,
           timestamp: Date.now() - 3600000
         }
       ];
@@ -528,13 +544,18 @@ function initFirebase() {
     const db = firebase.database();
     state.dbRef = db.ref('rooms/' + state.roomId + '/messages');
     
-    // Pre-shared key fetched directly from database (under auth_pin)
+    // Pre-shared key fetched from database (can be raw pin or already hashed sha-256)
     state.pinRef = db.ref('rooms/' + state.roomId + '/auth_pin');
-    state.pinRef.on('value', (snap) => {
-      const dbPin = snap.val();
-      if (dbPin) {
-        state.pin = String(dbPin);
-        if (state.unlocked) renderMessages();
+    state.pinRef.on('value', async (snap) => {
+      const val = snap.val();
+      if (val) {
+        const strVal = String(val).trim();
+        // If it's already a 64-character SHA-256 hex string, use directly; otherwise hash it
+        if (/^[a-fA-F0-9]{64}$/.test(strVal)) {
+          state.pinHash = strVal.toLowerCase();
+        } else {
+          state.pinHash = await hashPin(strVal);
+        }
       }
     });
 

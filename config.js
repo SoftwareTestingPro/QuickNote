@@ -1,14 +1,13 @@
 // App and Database Configuration
 // Edit this file to connect your shared Firebase database.
-// The pre-shared password / subscription key can be set in the database under /rooms/our-secret-space/auth_pin
-// or defaults to defaultPin if not yet in database.
+// The pre-shared password can be set in database /rooms/our-secret-space/auth_pin or uses pinHash.
 
 window.APP_CONFIG = {
   // Shared Channel ID
   roomId: 'our-secret-space',
 
-  // Fallback 4-digit key before it's fetched from the database
-  defaultPin: '3A6B',
+  // One-way cryptographic SHA-256 hash of the default PIN (Cannot be reversed)
+  pinHash: '22cf79c3e77d6476dd6eb433b77e1d998023a55bf41fb480f7d79db0266ec8c7',
 
   // Firebase Realtime Database Configuration
   // Paste your Firebase project configuration here:
