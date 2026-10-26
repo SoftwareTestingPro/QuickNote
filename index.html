@@ -12,9 +12,9 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="icon" type="image/png" href="icon-192.png">
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
   <!-- Config & Firebase SDKs -->
-  <script src="config.js?v=6"></script>
+  <script src="config.js?v=7"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 </head>
@@ -117,6 +117,15 @@
           <button class="key-btn key-action" id="keyBack">⌫</button>
         </div>
 
+        <!-- Device Role Switcher -->
+        <div class="role-selector-row">
+          <span class="role-label">Device Identity:</span>
+          <div class="role-pills">
+            <button type="button" class="role-pill active" id="roleBtnUser1" data-role="user1">User 1</button>
+            <button type="button" class="role-pill" id="roleBtnUser2" data-role="user2">User 2</button>
+          </div>
+        </div>
+
         <div class="modal-actions">
           <button class="btn btn-secondary" id="cancelPinBtn">Cancel</button>
         </div>
@@ -192,6 +201,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

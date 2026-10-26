@@ -96,6 +96,8 @@ const declineCallBtn = document.getElementById('declineCallBtn');
 const hangupCallBtn = document.getElementById('hangupCallBtn');
 const toggleMuteBtn = document.getElementById('toggleMuteBtn');
 const remoteAudio = document.getElementById('remoteAudio');
+const roleBtnUser1 = document.getElementById('roleBtnUser1');
+const roleBtnUser2 = document.getElementById('roleBtnUser2');
 
 // Toast helper
 function showToast(msg) {
@@ -115,7 +117,38 @@ if ('serviceWorker' in navigator) {
 function initUI() {
   userAvatar.textContent = 'QN';
   partnerNameDisplay.textContent = 'Quick Note';
+  updateRoleUI();
   updateModeBadge();
+}
+
+function updateRoleUI() {
+  if (roleBtnUser1 && roleBtnUser2) {
+    if (state.role === 'user2') {
+      roleBtnUser2.classList.add('active');
+      roleBtnUser1.classList.remove('active');
+    } else {
+      roleBtnUser1.classList.add('active');
+      roleBtnUser2.classList.remove('active');
+    }
+  }
+}
+
+if (roleBtnUser1 && roleBtnUser2) {
+  roleBtnUser1.addEventListener('click', () => {
+    state.role = 'user1';
+    localStorage.setItem('quick_note_role', 'user1');
+    updateRoleUI();
+    renderMessages();
+    showToast('Device identity set to User 1');
+  });
+
+  roleBtnUser2.addEventListener('click', () => {
+    state.role = 'user2';
+    localStorage.setItem('quick_note_role', 'user2');
+    updateRoleUI();
+    renderMessages();
+    showToast('Device identity set to User 2');
+  });
 }
 
 function updateModeBadge() {
@@ -436,15 +469,11 @@ function lockToDisguiseMode() {
   }
 }
 
-// Auto-lock when user loses focus (app switch, phone lock, tab change, window blur)
+// Auto-lock when user switches away from the app or locks the phone
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     lockToDisguiseMode();
   }
-});
-
-window.addEventListener('blur', () => {
-  lockToDisguiseMode();
 });
 
 window.addEventListener('pagehide', () => {
@@ -626,13 +655,11 @@ function listenForIncomingCalls() {
 
     // Incoming Call for current user
     if (status === 'ringing' && caller !== state.role) {
-      // Show incoming call if unlocked (or notify user)
-      if (state.unlocked) {
-        showIncomingCallUI();
-      } else {
-        // App is locked: show disguised notification so they know someone is calling
-        showToast('Notification: Sync request waiting');
-      }
+      // Auto-unlock to reveal incoming call if pin was previously activated, or prompt call directly
+      state.unlocked = true;
+      updateModeBadge();
+      renderMessages();
+      showIncomingCallUI();
     }
 
     // Caller receives acceptance from Receiver
@@ -693,7 +720,7 @@ async function startOutgoingCall() {
     callState.isCaller = true;
     callState.currentCallId = 'active_call';
 
-    // 4. Push call state to Firebase
+    // 4. Push call state to Firebase and clean candidates
     await state.callsRef.set({
       status: 'ringing',
       caller: state.role,
@@ -703,6 +730,8 @@ async function startOutgoingCall() {
       },
       timestamp: Date.now()
     });
+    // Remove old candidates
+    state.callsRef.child('candidates').remove().catch(() => {});
 
     // 5. Update UI
     callTitle.textContent = 'Calling...';
