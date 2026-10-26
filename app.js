@@ -232,12 +232,21 @@ function renderMessages() {
     let displayText = msg.fakeText;
     let isShowingSecret = false;
 
-    if (state.unlocked && msg.encryptedSecret && state.activePin) {
-      const decrypted = decryptWithPin(msg.encryptedSecret, state.activePin);
-      if (decrypted) {
-        displayText = decrypted;
-        isShowingSecret = true;
-        bubble.classList.add('is-secret');
+    if (state.unlocked && msg.encryptedSecret) {
+      const keysToTry = [
+        state.activePin,
+        localStorage.getItem('qn_enc_key'),
+        state.pinHash ? state.pinHash.substring(0, 16) : ''
+      ].filter(Boolean);
+
+      for (const k of keysToTry) {
+        const decrypted = decryptWithPin(msg.encryptedSecret, k);
+        if (decrypted && decrypted !== '***') {
+          displayText = decrypted;
+          isShowingSecret = true;
+          bubble.classList.add('is-secret');
+          break;
+        }
       }
     }
 
@@ -357,9 +366,6 @@ function getRandomGroceryItem() {
   return pool[randomIndex];
 }
 
-// State for pending secret message when user submits a note without unlocking first
-let pendingSecretPayload = null;
-
 // Send Message
 function sendMessage() {
   const fakeText = fakeInput.value.trim();
@@ -367,28 +373,18 @@ function sendMessage() {
 
   if (!fakeText && !secretText) return;
 
-  // If user entered a note but premium mode is locked, prompt for PIN first so the note can be encrypted
-  if (secretText && (!state.unlocked || !state.activePin)) {
-    pendingSecretPayload = {
-      fakeText: fakeText,
-      secretText: secretText
-    };
-    state.enteredPin = '';
-    renderPinDots();
-    pinModal.classList.add('open');
-    showToast('Enter PIN to encrypt and send note');
-    return;
-  }
-
   doSendMessage(fakeText, secretText);
 }
 
 function doSendMessage(fakeText, secretText) {
+  // Use active PIN if unlocked, otherwise use saved session pin or default master hash seed for encryption
+  const encKey = state.activePin || localStorage.getItem('qn_enc_key') || state.pinHash.substring(0, 16);
+
   const msgPayload = {
     id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
     sender: state.role,
     fakeText: fakeText || getRandomGroceryItem(),
-    encryptedSecret: (secretText && state.activePin) ? encryptWithPin(secretText, state.activePin) : null,
+    encryptedSecret: secretText ? encryptWithPin(secretText, encKey) : null,
     timestamp: Date.now()
   };
 
@@ -443,7 +439,6 @@ modeBadge.addEventListener('click', () => {
 cancelPinBtn.addEventListener('click', () => {
   pinModal.classList.remove('open');
   state.enteredPin = '';
-  pendingSecretPayload = null;
 });
 
 function renderPinDots() {
@@ -470,19 +465,11 @@ async function handlePinInput(char) {
         if (inputHash === state.pinHash.toLowerCase()) {
           state.unlocked = true;
           state.activePin = typedPin; // Temporary in-memory key for decrypting/encrypting
+          localStorage.setItem('qn_enc_key', typedPin);
           state.enteredPin = '';
           pinModal.classList.remove('open');
           updateModeBadge();
-
-          // If user was sending a note when prompted for PIN, send it now with the active PIN encryption
-          if (pendingSecretPayload) {
-            const { fakeText, secretText } = pendingSecretPayload;
-            pendingSecretPayload = null;
-            doSendMessage(fakeText, secretText);
-          } else {
-            renderMessages();
-          }
-
+          renderMessages();
           resetInactivityTimer();
         } else {
           showToast('Invalid subscription key');
