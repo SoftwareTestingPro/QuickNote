@@ -452,6 +452,7 @@ async function handlePinInput(char) {
           pinModal.classList.remove('open');
           updateModeBadge();
           renderMessages();
+          resetInactivityTimer();
         } else {
           showToast('Invalid subscription key');
           state.enteredPin = '';
@@ -480,6 +481,10 @@ document.getElementById('keyBack').addEventListener('click', () => {
 
 // Lock app to "Go Premium" standard disguised mode
 function lockToDisguiseMode() {
+  if (inactivityTimeout) {
+    clearTimeout(inactivityTimeout);
+    inactivityTimeout = null;
+  }
   if (state.unlocked || pinModal.classList.contains('open')) {
     state.unlocked = false;
     state.activePin = ''; // Wipe plaintext PIN from memory immediately
@@ -491,15 +496,46 @@ function lockToDisguiseMode() {
   }
 }
 
-// Auto-lock when user switches away from the app or locks the phone
+// Auto-lock listeners:
+// 1. window 'blur' triggers immediately when user taps home button, pulls down notification shade, or opens App Switcher (Recents)
+window.addEventListener('blur', () => {
+  lockToDisguiseMode();
+});
+
+// 2. document visibilitychange triggers when page becomes hidden
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
+  if (document.hidden || document.visibilityState !== 'visible') {
     lockToDisguiseMode();
   }
 });
 
+// 3. pagehide triggers when navigating away or app process suspended
 window.addEventListener('pagehide', () => {
   lockToDisguiseMode();
+});
+
+// 4. document 'freeze' (Page Lifecycle API)
+document.addEventListener('freeze', () => {
+  lockToDisguiseMode();
+});
+
+// 5. Inactivity Auto-Lock: if user stops touching/typing for 45 seconds while unlocked, lock automatically
+let inactivityTimeout = null;
+function resetInactivityTimer() {
+  if (inactivityTimeout) clearTimeout(inactivityTimeout);
+  if (state.unlocked) {
+    inactivityTimeout = setTimeout(() => {
+      // Don't auto-lock mid-call
+      if (!callState.isCallActive && !callState.currentCallId) {
+        lockToDisguiseMode();
+        showToast('App locked due to inactivity');
+      }
+    }, 45000); // 45 seconds
+  }
+}
+
+['touchstart', 'mousedown', 'keydown', 'scroll'].forEach(evt => {
+  window.addEventListener(evt, resetInactivityTimer, { passive: true });
 });
 
 // Quick Panic Disguise screen on tap header avatar
